@@ -58,6 +58,14 @@ string(REGEX MATCH "#define LIBCURL_VERSION_NUM 0x[0-9a-fA-F]+" _curl_version_nu
 string(REGEX REPLACE "[^0]+0x" "" _curl_version_num ${_curl_version_num})
 unset(_curl_version_h_contents)
 
+include("CMake/HunterGate.cmake")
+HunterGate(
+  URL "https://github.com/cpp-pm/hunter/archive/v0.25.3.tar.gz"
+  SHA1 "0dfbc2cb5c4cf7e83533733bdfd2125ff96680cb"
+)
+
+project(CURL C)
+
 message(STATUS "curl version=[${_curl_version}]")
 
 string(REGEX REPLACE "([0-9]+\.[0-9]+\.[0-9]+).+" "\\1" _curl_version_sem "${_curl_version}")
