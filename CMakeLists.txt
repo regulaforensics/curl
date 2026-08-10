@@ -989,12 +989,27 @@ endif()
 # and before calling curl_openssl_check_exists().
 
 set(HAVE_LIBZ OFF)
+hunter_add_package(ZLIB)
 curl_dependency_option(CURL_ZLIB ZLIB "ZLIB")
 if(ZLIB_FOUND)
   set(HAVE_LIBZ ON)
-  # Depend on ZLIB via imported targets. This allows our dependents to
-  # get our dependencies transitively.
-  list(APPEND CURL_LIBS ZLIB::ZLIB)
+
+  # Depend on ZLIB via imported targets if supported by the running
+  # version of CMake.  This allows our dependents to get our dependencies
+  # transitively.
+  if(HUNTER_ENABLED)
+    set(_curl_zlib_target ZLIB::zlib)
+    set(ZLIB_INCLUDE_DIRS "${ZLIB_ROOT}/include")
+  elseif(NOT CMAKE_VERSION VERSION_LESS 3.4)
+    set(_curl_zlib_target ZLIB::ZLIB)
+  else()
+    list(APPEND CURL_LIBS ${ZLIB_LIBRARIES})
+    include_directories(${ZLIB_INCLUDE_DIRS})
+  endif()
+  if(_curl_zlib_target)
+    list(APPEND CURL_LIBS ${_curl_zlib_target})
+  endif()
+  list(APPEND CMAKE_REQUIRED_INCLUDES ${ZLIB_INCLUDE_DIRS})
 endif()
 
 set(HAVE_BROTLI OFF)
@@ -1022,7 +1037,7 @@ macro(curl_openssl_check_exists)
     list(APPEND CMAKE_REQUIRED_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
     list(APPEND CMAKE_REQUIRED_DEFINITIONS "-DOPENSSL_SUPPRESS_DEPRECATED")  # for SSL_CTX_set_srp_username deprecated since 3.0.0
     if(HAVE_LIBZ)
-      list(APPEND CMAKE_REQUIRED_LIBRARIES ZLIB::ZLIB)
+      list(APPEND CMAKE_REQUIRED_LIBRARIES ${_curl_zlib_target})
     endif()
     if(WIN32)
       list(APPEND CMAKE_REQUIRED_LIBRARIES "bcrypt")  # for OpenSSL/LibreSSL BCryptGenRandom()
@@ -1032,7 +1047,7 @@ macro(curl_openssl_check_exists)
     list(APPEND CMAKE_REQUIRED_LIBRARIES CURL::wolfssl)
     list(APPEND CMAKE_REQUIRED_DEFINITIONS "-DWOLFSSL_OPTIONS_IGNORE_SYS")
     if(HAVE_LIBZ)
-      list(APPEND CMAKE_REQUIRED_LIBRARIES ZLIB::ZLIB)  # Public wolfSSL headers also require zlib headers
+      list(APPEND CMAKE_REQUIRED_LIBRARIES ${_curl_zlib_target})  # Public wolfSSL headers also require zlib headers
     endif()
     list(APPEND CMAKE_REQUIRED_DEFINITIONS "-DHAVE_UINTPTR_T")  # to pull in stdint.h (as of wolfSSL v5.5.4)
   endif()
@@ -1896,9 +1911,9 @@ if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
     set_target_properties(CURL::OpenSSL_Crypto PROPERTIES INTERFACE_LINK_LIBRARIES OpenSSL::Crypto)
     list(APPEND CURL_LIBS CURL::OpenSSL_Crypto)
   endif()
-  if(HAVE_LIBZ AND TARGET ZLIB::ZLIB)
+  if(HAVE_LIBZ AND TARGET "${_curl_zlib_target}")
     add_library(CURL::ZLIB INTERFACE IMPORTED)
-    set_target_properties(CURL::ZLIB PROPERTIES INTERFACE_LINK_LIBRARIES ZLIB::ZLIB)
+    set_target_properties(CURL::ZLIB PROPERTIES INTERFACE_LINK_LIBRARIES "${_curl_zlib_target}")
     list(APPEND CURL_LIBS CURL::ZLIB)
   endif()
   if(WIN32)
@@ -2204,7 +2219,7 @@ if(NOT CURL_DISABLE_INSTALL)
       endif()
       if(_lib STREQUAL OpenSSL::SSL AND NOT HAVE_BORINGSSL)  # BoringSSL does not provide openssl.pc
         set(_modules "openssl")
-      elseif(_lib STREQUAL ZLIB::ZLIB AND NOT ANDROID)  # Android does not provide zlib.pc
+      elseif(_lib STREQUAL "${_curl_zlib_target}" AND NOT ANDROID)  # Android does not provide zlib.pc
         set(_modules "zlib")
       else()
         get_target_property(_modules "${_lib}" INTERFACE_LIBCURL_PC_MODULES)
