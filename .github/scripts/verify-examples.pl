@@ -27,7 +27,7 @@ use strict;
 use warnings;
 
 my @files = @ARGV;
-my $cfile = "test.c";
+my $cfile = 'test-' . (defined $ENV{'CC'} ? $ENV{'CC'} : 'gcc') . '.c';
 my $check = "./scripts/checksrc.pl";
 my $error = 0;
 
@@ -37,14 +37,19 @@ if(!@files || $files[0] eq "-h") {
 }
 
 sub testcompile {
-    my $rc = system('gcc -c test.c -I include -W -Wall -pedantic -Werror ' .
+    my $cc = defined $ENV{'CC'} ? $ENV{'CC'} : 'gcc';
+    my $cflags = '';
+    if(defined $ENV{'CFLAGS'}) {
+        $cflags .= ' ' . $ENV{'CFLAGS'};
+    }
+    my $rc = system($cc . ' -c ' . $cfile . ' -I include -W -Wall -pedantic -Werror ' . $cflags . ' ' .
         '-Wno-unused-parameter -Wno-unused-but-set-variable ' .
         '-DCURL_ALLOW_OLD_MULTI_SOCKET -DCURL_DISABLE_DEPRECATION') >> 8;
     return $rc;
 }
 
 sub checksrc {
-    my $rc = system($check, ('test.c')) >> 8;
+    my $rc = system($check, ($cfile)) >> 8;
     return $rc;
 }
 
@@ -54,8 +59,8 @@ sub extract {
     my $l = 0;
     my $iline = 0;
     my $fail = 0;
-    open(F, "<$f") or die "failed opening input file $f : $!";
-    open(O, ">$cfile") or die "failed opening output file $cfile : $!";
+    open(F, "<", $f) or die "failed opening input file $f : $!";
+    open(O, ">", $cfile) or die "failed opening output file $cfile : $!";
     print O "#include <curl/curl.h>\n";
     while(<F>) {
         $iline++;

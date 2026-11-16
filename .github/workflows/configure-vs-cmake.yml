@@ -7,6 +7,7 @@ name: 'configure-vs-cmake'
   push:
     branches:
       - master
+      - 'curl-*'
     paths:
       - '*.ac'
       - '**/*.m4'
@@ -20,6 +21,7 @@ name: 'configure-vs-cmake'
   pull_request:
     branches:
       - master
+      - 'curl-*'
     paths:
       - '*.ac'
       - '**/*.m4'
@@ -35,22 +37,25 @@ concurrency:
   cancel-in-progress: true
 
 permissions: {}
+cache-mode: none
 
 env:
+  CURL_CI: github
   DO_NOT_TRACK: '1'
 
 jobs:
   check-linux:
     name: 'Linux'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-arm
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: 'run configure --with-openssl'
         run: |
           autoreconf -fi
+          echo '::group::configure --help output'; ./configure --help; echo '::endgroup::'
           export PKG_CONFIG_DEBUG_SPEW=1
           mkdir bld-am && cd bld-am && ../configure --enable-static=no --with-openssl --without-libpsl
 
@@ -63,7 +68,7 @@ jobs:
       - name: 'cmake log'
         run: cat bld-cm/CMakeFiles/CMakeConfigureLog.yaml 2>/dev/null || true
 
-      - name: 'dump generated files'
+      - name: 'generated libcurl.pc files'
         run: |
           for f in libcurl.pc curl-config; do
             echo "::group::AM ${f}"; grep -v '^#' bld-am/"${f}" || true; echo '::endgroup::'
@@ -71,44 +76,35 @@ jobs:
           done
 
       - name: 'compare generated curl_config.h files'
-        run: ./.github/scripts/cmp-config.pl bld-am/lib/curl_config.h bld-cm/lib/curl_config.h
+        run: .github/scripts/cmp-config.pl bld-am/lib/curl_config.h bld-cm/lib/curl_config.h
 
       - name: 'compare generated libcurl.pc files'
-        run: ./.github/scripts/cmp-pkg-config.sh bld-am/libcurl.pc bld-cm/libcurl.pc
+        run: .github/scripts/cmp-pkg-config.sh bld-am/libcurl.pc bld-cm/libcurl.pc
 
       - name: 'compare generated curl-config files'
-        run: ./.github/scripts/cmp-pkg-config.sh bld-am/curl-config bld-cm/curl-config
+        run: .github/scripts/cmp-pkg-config.sh bld-am/curl-config bld-cm/curl-config
 
   check-macos:
     name: 'macOS'
     runs-on: macos-latest
     steps:
-      - name: 'install packages'
+      - name: 'install prereqs'
         timeout-minutes: 2
-        run: |
-          # shellcheck disable=SC2181
-          while [[ $? == 0 ]]; do
-            for i in 1 2 3; do
-              if brew install automake libtool; then
-                break 2
-              else
-                echo "Error: wait to try again: $i"
-                sleep 10
-              fi
-            done
-            false Too many retries
-          done
+        uses: $/.github/actions/pkg-install
+        with:
+          brew: automake libtool
 
       - name: 'toolchain versions'
         run: echo '::group::brew packages installed'; ls -l /opt/homebrew/opt; echo '::endgroup::'
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: 'run configure --with-openssl'
         run: |
           autoreconf -fi
+          echo '::group::configure --help output'; ./configure --help; echo '::endgroup::'
           export PKG_CONFIG_DEBUG_SPEW=1
           mkdir bld-am && cd bld-am && ../configure --enable-static=no --with-openssl --without-libpsl --disable-ldap --with-brotli --with-zstd --with-apple-sectrust
 
@@ -124,43 +120,45 @@ jobs:
       - name: 'cmake log'
         run: cat bld-cm/CMakeFiles/CMakeConfigureLog.yaml 2>/dev/null || true
 
-      - name: 'dump generated files'
+      - name: 'generated libcurl.pc files'
         run: |
           for f in libcurl.pc curl-config; do
             echo "::group::AM ${f}"; grep -v '^#' bld-am/"${f}" || true; echo '::endgroup::'
             echo "::group::CM ${f}"; grep -v '^#' bld-cm/"${f}" || true; echo '::endgroup::'
           done
+          pccritic --version
+          pccritic --min-score 98 bld-am/libcurl.pc
+          pccritic --min-score 98 bld-cm/libcurl.pc
 
       - name: 'compare generated curl_config.h files'
-        run: ./.github/scripts/cmp-config.pl bld-am/lib/curl_config.h bld-cm/lib/curl_config.h
+        run: .github/scripts/cmp-config.pl bld-am/lib/curl_config.h bld-cm/lib/curl_config.h
 
       - name: 'compare generated libcurl.pc files'
-        run: ./.github/scripts/cmp-pkg-config.sh bld-am/libcurl.pc bld-cm/libcurl.pc
+        run: .github/scripts/cmp-pkg-config.sh bld-am/libcurl.pc bld-cm/libcurl.pc
 
       - name: 'compare generated curl-config files'
-        run: ./.github/scripts/cmp-pkg-config.sh bld-am/curl-config bld-cm/curl-config
+        run: .github/scripts/cmp-pkg-config.sh bld-am/curl-config bld-cm/curl-config
 
   check-windows:
     name: 'Windows'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-arm
     env:
       TRIPLET: 'x86_64-w64-mingw32'
     steps:
-      - name: 'install packages'
+      - name: 'install prereqs'
         timeout-minutes: 1
-        run: |
-          sudo find /etc/apt/sources.list.d -type f -not -name 'ubuntu.sources' -delete -print
-          sudo sed -i 's/priority:1/priority:9/' /etc/apt/apt-mirrors.txt; cat /etc/apt/apt-mirrors.txt
-          sudo apt-get -o Dpkg::Use-Pty=0 update
-          sudo apt-get -o Dpkg::Use-Pty=0 install gcc-mingw-w64-x86-64-win32
+        uses: $/.github/actions/pkg-install
+        with:
+          apt: gcc-mingw-w64-x86-64-win32
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: 'run configure --with-schannel'
         run: |
           autoreconf -fi
+          echo '::group::configure --help output'; ./configure --help; echo '::endgroup::'
           export PKG_CONFIG_DEBUG_SPEW=1
           mkdir bld-am && cd bld-am && ../configure --enable-static=no --with-schannel --without-libpsl --host="${TRIPLET}"
 
@@ -177,7 +175,7 @@ jobs:
       - name: 'cmake log'
         run: cat bld-cm/CMakeFiles/CMakeConfigureLog.yaml 2>/dev/null || true
 
-      - name: 'dump generated files'
+      - name: 'generated libcurl.pc files'
         run: |
           for f in libcurl.pc curl-config; do
             echo "::group::AM ${f}"; grep -v '^#' bld-am/"${f}" || true; echo '::endgroup::'
@@ -185,10 +183,10 @@ jobs:
           done
 
       - name: 'compare generated curl_config.h files'
-        run: ./.github/scripts/cmp-config.pl bld-am/lib/curl_config.h bld-cm/lib/curl_config.h
+        run: .github/scripts/cmp-config.pl bld-am/lib/curl_config.h bld-cm/lib/curl_config.h
 
       - name: 'compare generated libcurl.pc files'
-        run: ./.github/scripts/cmp-pkg-config.sh bld-am/libcurl.pc bld-cm/libcurl.pc
+        run: .github/scripts/cmp-pkg-config.sh bld-am/libcurl.pc bld-cm/libcurl.pc
 
       - name: 'compare generated curl-config files'
-        run: ./.github/scripts/cmp-pkg-config.sh bld-am/curl-config bld-cm/curl-config
+        run: .github/scripts/cmp-pkg-config.sh bld-am/curl-config bld-cm/curl-config
